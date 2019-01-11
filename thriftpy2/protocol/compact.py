@@ -6,6 +6,7 @@ import array
 from struct import pack, unpack
 
 from .exc import TProtocolException
+from .base import TProtocolBase
 from ..thrift import TException
 from ..thrift import TType
 
@@ -113,7 +114,7 @@ TTYPES = dict((v, k) for k, v in CTYPES.items())
 TTYPES[CompactType.FALSE] = TType.BOOL
 
 
-class TCompactProtocol(object):
+class TCompactProtocol(TProtocolBase):
     """Compact implementation of the Thrift protocol driver."""
     PROTOCOL_ID = 0x82
     VERSION = 1
@@ -123,12 +124,11 @@ class TCompactProtocol(object):
     TYPE_SHIFT_AMOUNT = 5
 
     def __init__(self, trans, decode_response=True):
-        self.trans = trans
+        super(TCompactProtocol, self).__init__(trans, decode_response)
         self._last_fid = 0
         self._bool_fid = None
         self._bool_value = None
         self._structs = []
-        self.decode_response = decode_response
 
     def _get_ttype(self, byte):
         return TTYPES[byte & 0x0f]
@@ -180,9 +180,6 @@ class TCompactProtocol(object):
 
         return None, self._get_ttype(type), fid
 
-    def read_field_end(self):
-        pass
-
     def read_struct_begin(self):
         self._structs.append(self._last_fid)
         self._last_fid = 0
@@ -199,7 +196,7 @@ class TCompactProtocol(object):
         ktype = self._get_ttype(types >> 4)
         return (ktype, vtype, size)
 
-    def read_collection_begin(self):
+    def read_list_begin(self):
         size_type = self.read_ubyte()
         size = size_type >> 4
         type = self._get_ttype(size_type)
@@ -207,8 +204,7 @@ class TCompactProtocol(object):
             size = self._read_size()
         return type, size
 
-    def read_collection_end(self):
-        pass
+    read_set_begin = read_list_begin
 
     def read_byte(self):
         result, = unpack('!b', self.trans.read(1))
@@ -220,6 +216,8 @@ class TCompactProtocol(object):
 
     def read_int(self):
         return from_zig_zag(read_varint(self.trans))
+
+    read_i16 = read_i32 = read_i64 = read_int
 
     def read_double(self):
         buff = self.trans.read(8)
@@ -244,97 +242,6 @@ class TCompactProtocol(object):
             return result
         return self.read_byte() == CompactType.TRUE
 
-    def read_struct(self, obj):
-        self.read_struct_begin()
-        while True:
-            fname, ftype, fid = self.read_field_begin()
-            if ftype == TType.STOP:
-                break
-
-            if fid not in obj.thrift_spec:
-                self.skip(ftype)
-                continue
-
-            try:
-                field = obj.thrift_spec[fid]
-            except IndexError:
-                self.skip(ftype)
-                raise
-            else:
-                if field is not None and ftype == field[0]:
-                    fname = field[1]
-                    fspec = field[2]
-                    val = self.read_val(ftype, fspec)
-                    setattr(obj, fname, val)
-                else:
-                    self.skip(ftype)
-            self.read_field_end()
-        self.read_struct_end()
-
-    def read_val(self, ttype, spec=None):
-        if ttype == TType.BOOL:
-            return self.read_bool()
-
-        elif ttype == TType.BYTE:
-            return self.read_byte()
-
-        elif ttype in (TType.I16, TType.I32, TType.I64):
-            return self.read_int()
-
-        elif ttype == TType.DOUBLE:
-            return self.read_double()
-
-        elif ttype == TType.STRING:
-            return self.read_string()
-
-        elif ttype in (TType.LIST, TType.SET):
-            if isinstance(spec, tuple):
-                v_type, v_spec = spec[0], spec[1]
-            else:
-                v_type, v_spec = spec, None
-            result = []
-            r_type, sz = self.read_collection_begin()
-
-            for i in range(sz):
-                result.append(self.read_val(v_type, v_spec))
-
-            self.read_collection_end()
-            return result
-
-        elif ttype == TType.MAP:
-            if isinstance(spec[0], int):
-                k_type = spec[0]
-                k_spec = None
-            else:
-                k_type, k_spec = spec[0]
-
-            if isinstance(spec[1], int):
-                v_type = spec[1]
-                v_spec = None
-            else:
-                v_type, v_spec = spec[1]
-
-            result = {}
-            sk_type, sv_type, sz = self.read_map_begin()
-            if sk_type != k_type or sv_type != v_type:
-                for _ in range(sz):
-                    self.skip(sk_type)
-                    self.skip(sv_type)
-                self.read_collection_end()
-                return {}
-
-            for i in range(sz):
-                k_val = self.read_val(k_type, k_spec)
-                v_val = self.read_val(v_type, v_spec)
-                result[k_val] = v_val
-            self.read_collection_end()
-            return result
-
-        elif ttype == TType.STRUCT:
-            obj = spec()
-            self.read_struct(obj)
-            return obj
-
     def _write_size(self, i32):
         write_varint(self.trans, i32)
 
@@ -352,9 +259,6 @@ class TCompactProtocol(object):
         self.write_ubyte(self.VERSION | (type << self.TYPE_SHIFT_AMOUNT))
         write_varint(self.trans, seqid)
         self.write_string(name)
-
-    def write_message_end(self):
-        pass
 
     def write_field_stop(self):
         self.write_byte(0)
@@ -375,12 +279,14 @@ class TCompactProtocol(object):
     def write_struct_end(self):
         self._last_fid = self._structs.pop()
 
-    def write_collection_begin(self, etype, size):
+    def write_list_begin(self, etype, size):
         if size <= 14:
             self.write_ubyte(size << 4 | CTYPES[etype])
         else:
             self.write_ubyte(0xf0 | CTYPES[etype])
             self._write_size(size)
+
+    write_set_begin = write_list_begin
 
     def write_map_begin(self, ktype, vtype, size):
         if size == 0:
@@ -388,9 +294,6 @@ class TCompactProtocol(object):
         else:
             self._write_size(size)
             self.write_ubyte(CTYPES[ktype] << 4 | CTYPES[vtype])
-
-    def write_collection_end(self):
-        pass
 
     def write_ubyte(self, byte):
         self.trans.write(pack('!B', byte))

@@ -30,6 +30,13 @@ if PY3:
 
     def u(s):
         return s
+
+    def str_to_binary(str_val):
+        return bytes(str_val, 'utf-8')
+
+    def binary_to_str(bin_val):
+        return bin_val.decode('utf-8')
+
 else:
     text_type = unicode  # noqa
     string_types = (str, unicode)  # noqa
@@ -40,6 +47,14 @@ else:
         if not isinstance(s, text_type):
             s = s.decode("utf-8")
         return s
+
+    def str_to_binary(str_val):
+        if not isinstance(str_val, bytes):
+            str_val = str_val.encode('utf-8')
+        return str_val
+
+    def binary_to_str(bin_val):
+        return bin_val
 
 
 def with_metaclass(meta, *bases):
