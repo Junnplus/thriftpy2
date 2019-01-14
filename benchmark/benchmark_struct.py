@@ -1,8 +1,13 @@
+from __future__ import print_function
+
 import time
+import platform
 
 import thriftpy2
+from thriftpy2._compat import CYTHON
 from thriftpy2.utils import serialize, deserialize
-from thriftpy2.protocol import TBinaryProtocolFactory, TCyBinaryProtocolFactory
+from thriftpy2.protocol import TCyBinaryProtocolFactory
+from thriftpy2.protocol.binary import TBinaryProtocolFactory
 
 addressbook = thriftpy2.load("addressbook.thrift")
 
@@ -22,6 +27,8 @@ def make_addressbook():
     ab = addressbook.AddressBook()
     ab.people = {person.name: person}
     return ab
+
+
 ab_encoded = serialize(make_addressbook())
 
 
@@ -46,13 +53,17 @@ def decode(n, proto_factory=TBinaryProtocolFactory()):
 def main():
     n = 100000
 
+    print("# thriftpy & {} {}\n".format(platform.python_implementation(),
+                                        platform.python_version()))
+
     print("binary protocol struct benchmark for {} times:".format(n))
     encode(n)
     decode(n)
 
-    print("\ncybin protocol struct benchmark for {} times:".format(n))
-    encode(n, TCyBinaryProtocolFactory())
-    decode(n, TCyBinaryProtocolFactory())
+    if CYTHON:
+        print("\ncybin protocol struct benchmark for {} times:".format(n))
+        encode(n, TCyBinaryProtocolFactory())
+        decode(n, TCyBinaryProtocolFactory())
 
 
 if __name__ == "__main__":

@@ -1,4 +1,7 @@
+from __future__ import print_function
+
 import time
+import platform
 
 from thrift.TSerialization import serialize, deserialize
 from thrift.protocol.TBinaryProtocol import (
@@ -12,12 +15,12 @@ from addressbook import ttypes
 def make_addressbook():
     phone1 = ttypes.PhoneNumber()
     phone1.type = ttypes.PhoneType.MOBILE
-    phone1.number = b'555-1212'
+    phone1.number = '555-1212'
     phone2 = ttypes.PhoneNumber()
     phone2.type = ttypes.PhoneType.HOME
-    phone2.number = b'555-1234'
+    phone2.number = '555-1234'
     person = ttypes.Person()
-    person.name = b"Alice"
+    person.name = "Alice"
     person.phones = [phone1, phone2]
     person.created_at = 1400000000
 
@@ -47,6 +50,9 @@ def decode(n, proto_factory=TBinaryProtocolFactory()):
 
 def main():
     n = 100000
+
+    print("# apache thrift & {} {}\n".format(platform.python_implementation(),
+                                             platform.python_version()))
 
     print("binary protocol struct benchmark for {} times:".format(n))
     encode(n)
